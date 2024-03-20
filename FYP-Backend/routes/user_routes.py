@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, Header, Response
-from models.user import User
+from fastapi import  APIRouter, Response, Depends
+from models.user import UserIn, UserOut, UserInDB, UserLogin
 from config.database import users_collection
 from bson import ObjectId
 import os
@@ -8,45 +8,43 @@ from config.database import functions_collection
 import subprocess
 from passlib.hash import bcrypt
 from starlette.responses import FileResponse
-from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
-from jwt import PyJWTError, encode as jwt_encode, decode as jwt_decode
+
 from datetime import datetime, timedelta
-from utils.access_token import create_access_token, decode_access_token
-from models.user_login import UserLogin
+
+from utils.hashing import get_password_hash, verify_password
 
 
 os.environ["REPLICATE_API_TOKEN"] = "r8_GiOYTpAJsjXCRs8IxwO7fhBoYNqIBFi1KecAA"
 
 user_router = APIRouter()
 
+
 @user_router.get("/")
 def get_user():
     return {"message": "hello"}
 
-@user_router.post("/signup")
-async def signup(user: User):
+
+
+
+@user_router.post("/signup", response_model=UserOut)
+async def signup(user: UserIn):
     # Check if user already exists
 
-    existing_user = users_collection.find_one({"email": user.email})
+    
 
-    if existing_user:
-        return {
-            "error" : "Can not create user!"
-        }
-
-    # Hash the password
-    hashed_password = bcrypt.hash(user.password)
     user_dict = dict(user)
-    user_dict["password"] = hashed_password
+    # Hash the password
+    hashed_password = get_password_hash(user_dict["password"])
+    
+
+    user_in_db = UserInDB(**user_dict, hashed_password=hashed_password)
     
     # Create user in the database
-    result = users_collection.insert_one(user_dict)
+    result = users_collection.insert_one(dict(user_in_db))
 
-    if result:
-        return {
-            "message": "User created successfully",
-        }
+    if result.acknowledged:
+        return users_collection.find_one({"_id": result.inserted_id})
     
 
 
@@ -56,20 +54,13 @@ async def signup(user: User):
 @user_router.post("/login")
 async def login(user_login: UserLogin):
     user = users_collection.find_one({"email": user_login.email})
-    if not user or not bcrypt.verify(user_login.password, user["password"]):
+    if not user or not verify_password(user_login.password, user["hashed_password"]):
         return {
             "message" : "Uaser can not be logged in!"
         }
 
-    # Generate JWT token with expiry time
-    access_token_expires = timedelta(hours=48)
-    access_token = create_access_token(data={"sub": str(user["_id"])}, expires_delta=access_token_expires)
     
-    # Include access token in response headers
-    response = Response()
-    response.headers["Authorization"] = f"Bearer {access_token}"
-    response.headers["token_type"] = "bearer"
-    return {"message": "Login successful"}, response
+    return {"message": "Login successful"}
 
 
 
@@ -77,17 +68,7 @@ async def login(user_login: UserLogin):
 
 
 
-# @user_router.get("/users/me")
-# async def read_users_me(authorization: str = Header(...)):
-#     token = authorization.split()[1]
-#     payload = decode_access_token(token)
-#     user_id = payload.get("sub")
-#     # Now you have user_id, you can fetch the user details from the database
-#     user = users_collection.find_one({"_id": ObjectId(user_id)})
-#     if user:
-#         return user
-#     else:
-#         raise HTTPException(status_code=404, detail="User not found")
+
 
 
 
@@ -211,14 +192,5 @@ async def handlePrompt(prompt: str):
     blend_file_path = "C:\\Users\\hp\\Documents\\FYP\\FYP-Backend\\generated_codes\\code.py"
 
  
-
-    # return {
-    #     "output_1":output_1, 
-    #     "function_names": function_names,
-    #     "all_code": all_codes,
-        
-   
-
-    # }
     return FileResponse(blend_file_path, media_type="application/octet-stream")
         

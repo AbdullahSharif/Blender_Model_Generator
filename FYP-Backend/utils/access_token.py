@@ -1,25 +1,9 @@
-from fastapi import HTTPException, Depends
-from fastapi.security import OAuth2PasswordBearer
-from jwt import PyJWTError, encode as jwt_encode, decode as jwt_decode
-from datetime import datetime, timedelta
+from jose import jwt, JWTError
 
-
-SECRET_KEY = "your-secret-key"
+# Secret key to sign the JWT token
+SECRET_KEY = "wbv2ibv2ivb92uec1uiciebc1u3icuiei1eu"
+# Algorithm used for signing the JWT token
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# Expiry time for the JWT token (in minutes)
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-def create_access_token(data: dict, expires_delta: timedelta):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + expires_delta
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt_encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-def decode_access_token(token: str):
-    try:
-        payload = jwt_decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
