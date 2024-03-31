@@ -6,29 +6,29 @@ import os
 import replicate
 from config.database import functions_collection
 import subprocess
-from passlib.hash import bcrypt
 from starlette.responses import FileResponse
-from fastapi.security import OAuth2PasswordBearer
-
-from datetime import datetime, timedelta
-
 from utils.hashing import get_password_hash, verify_password
+from utils.access_token import create_access_token, decode_token
+from utils.check_user_auth import check_user_auth
+from models.prompt import Prompt
 
 
-os.environ["REPLICATE_API_TOKEN"] = "r8_GiOYTpAJsjXCRs8IxwO7fhBoYNqIBFi1KecAA"
+os.environ["REPLICATE_API_TOKEN"] = os.getenv("REPLICATE_API_KEY")
 
 user_router = APIRouter()
 
 
-@user_router.get("/")
-def get_user():
-    return {"message": "hello"}
+@user_router.get("/me", dependencies=[Depends(check_user_auth)], response_model=UserOut)
+def get_user(x_user_auth:str = Depends(check_user_auth)):
+    decoded_data = decode_token(x_user_auth)
+    user = users_collection.find_one({"_id": ObjectId(decoded_data["_id"])})
+    return user
 
 
 
 
-@user_router.post("/signup", response_model=UserOut)
-async def signup(user: UserIn):
+@user_router.post("/signup")
+async def signup(user: UserIn, response: Response):
     # Check if user already exists
 
     
@@ -44,7 +44,10 @@ async def signup(user: UserIn):
     result = users_collection.insert_one(dict(user_in_db))
 
     if result.acknowledged:
-        return users_collection.find_one({"_id": result.inserted_id})
+        response.headers["X-User-Auth"] = create_access_token(str(result.inserted_id)) 
+        # return users_collection.find_one({"_id": result.inserted_id})
+        return {"message": "Registered Successfully!"}
+
     
 
 
@@ -52,14 +55,14 @@ async def signup(user: UserIn):
 
 
 @user_router.post("/login")
-async def login(user_login: UserLogin):
+async def login(user_login: UserLogin, response: Response):
     user = users_collection.find_one({"email": user_login.email})
     if not user or not verify_password(user_login.password, user["hashed_password"]):
         return {
             "message" : "Uaser can not be logged in!"
         }
-
     
+    response.headers["X-User-Auth"] = create_access_token(str(user["_id"]))    
     return {"message": "Login successful"}
 
 
@@ -68,25 +71,25 @@ async def login(user_login: UserLogin):
 
 
 
+@user_router.post("/prompt", dependencies=[Depends(check_user_auth)])
+async def handlePrompt(prompt: Prompt, x_user_auth:str = Depends(check_user_auth) ):
+    
+    code_file_filepath = "C:\\Users\\hp\\Documents\\FYP\\Blender_Model_Generator\\FYP-Backend\\generated_codes\\code.py"
+    if os.path.exists(code_file_filepath):
+        os.remove(code_file_filepath)
 
 
-
-
-
-
-@user_router.post("/prompt")
-async def handlePrompt(prompt: str):
-
+    prompt_text = prompt.text
     # Update user prompts and generation count
-    user_email = "abdullah@gmail.com"  # Assuming you have the user's email
-    user = users_collection.find_one({"email": user_email})
+    user_id = decode_token(x_user_auth)
+    user = users_collection.find_one({"_id": user_id["_id"]})
 
     if user:
         # Update prompts array and increment generation_count
         users_collection.update_one(
             {"_id": ObjectId(user["_id"])},
             {
-                "$push": {"prompts": prompt},
+                "$push": {"prompts": prompt_text},
                 "$inc": {"generation_count": 1}
             }
         )
@@ -126,7 +129,7 @@ async def handlePrompt(prompt: str):
     input={
         "debug": True,
         "top_p": 1,
-        "prompt": prompt,
+        "prompt": prompt_text,
         "temperature": 0.5,
         "system_prompt": f"You are a helpful and intelligent assistant. Always answer as helpfully as possible, while being safe. Analyze these docs of different functions and based on the input prompt, choose the best functions that we can use. Only provide the names of the functions that we have to use. This is the list explaining all the functions: {function_docs}. Only provide the names of the function in response. Don't give any other details.\n\n",
         "max_new_tokens": 1500,
@@ -164,6 +167,8 @@ async def handlePrompt(prompt: str):
     if not os.path.exists('generated_codes'):
         os.makedirs('generated_codes')
 
+    
+
     # write import statements
     for imp in import_statements:
         with open(f'generated_codes/code.py', 'a') as f:
@@ -184,12 +189,11 @@ async def handlePrompt(prompt: str):
             f.write("\nbpy.ops.wm.save_as_mainfile(filepath='./generated_scene.blend')\n")
     
 
-    command = ["C:\\Program Files\\Blender Foundation\\Blender 4.0\\blender.exe", "--background", "--python", "C:\\Users\\hp\\Documents\\FYP\\FYP-Backend\\generated_codes\\code.py"]
-    # time.sleep(2)
-    # Run the command
+    command = ["C:\\Program Files\\Blender Foundation\\Blender 4.0\\blender.exe", "--background", "--python", "C:\\Users\\hp\\Documents\\FYP\\Blender_Model_Generator\\FYP-Backend\\generated_codes\\code.py"]
+
     subprocess.run(command)
 
-    blend_file_path = "C:\\Users\\hp\\Documents\\FYP\\FYP-Backend\\generated_codes\\code.py"
+    blend_file_path = code_file_filepath
 
  
     return FileResponse(blend_file_path, media_type="application/octet-stream")
