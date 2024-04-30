@@ -1,6 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field
-from fastapi import Body
-from typing import Annotated
+from pydantic import BaseModel, EmailStr
+
 
 
 class UserBase(BaseModel):
