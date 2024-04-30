@@ -11,6 +11,10 @@ load_dotenv()
 
 app = FastAPI()
 
+@app.get("/")
+def index():
+    return {"message": "API is working"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins = ["*"],
